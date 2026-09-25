@@ -7,3 +7,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+job_state.json
+.pytest_cache/
+__pycache__/
