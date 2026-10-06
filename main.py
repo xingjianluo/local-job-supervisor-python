@@ -16,6 +16,25 @@ logging.basicConfig(level=logging.INFO)
 STATE_DIR = Path(os.environ.get("JOB_STATE_DIR", ".job-state"))
 
 
+def _limits_from_env() -> Limits:
+    def int_env(name: str, default: int) -> int:
+        raw = os.environ.get(name)
+        return int(raw) if raw not in (None, "") else default
+
+    return Limits(
+        max_concurrent=int_env("JOB_MAX_CONCURRENT", Limits.max_concurrent),
+        max_memory_mb=int_env("JOB_MAX_MEMORY_MB", Limits.max_memory_mb),
+        max_procs_per_job=int_env("JOB_MAX_PROCS_PER_JOB", Limits.max_procs_per_job),
+        max_queue_size=int_env("JOB_MAX_QUEUE_SIZE", Limits.max_queue_size),
+        cancel_grace_period_ms=int_env(
+            "JOB_CANCEL_GRACE_PERIOD_MS", Limits.cancel_grace_period_ms
+        ),
+        cancel_kill_wait_ms=int_env(
+            "JOB_CANCEL_KILL_WAIT_MS", Limits.cancel_kill_wait_ms
+        ),
+    )
+
+
 class SubmitRequest(BaseModel):
     duration_ms: int = Field(description="simulated run duration per child process")
     memory_mb: int = Field(description="reserved memory accounted against the budget")
@@ -26,7 +45,7 @@ class SubmitRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    supervisor = JobSupervisor(JobStore(STATE_DIR / "jobs.json"), Limits())
+    supervisor = JobSupervisor(JobStore(STATE_DIR / "jobs.json"), _limits_from_env())
     await supervisor.start()
     app.state.supervisor = supervisor
     yield
