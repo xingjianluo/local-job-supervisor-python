@@ -16,17 +16,38 @@ logging.basicConfig(level=logging.INFO)
 STATE_DIR = Path(os.environ.get("JOB_STATE_DIR", ".job-state"))
 
 
+def _limits_from_env() -> Limits:
+    def _int_env(name: str, default: int) -> int:
+        raw = os.environ.get(name)
+        return int(raw) if raw not in (None, "") else default
+
+    return Limits(
+        max_concurrent=_int_env("JOB_MAX_CONCURRENT", Limits.max_concurrent),
+        max_memory_mb=_int_env("JOB_MAX_MEMORY_MB", Limits.max_memory_mb),
+        max_procs_per_job=_int_env("JOB_MAX_PROCS_PER_JOB", Limits.max_procs_per_job),
+        max_queue_size=_int_env("JOB_MAX_QUEUE_SIZE", Limits.max_queue_size),
+        cancel_grace_ms=_int_env("JOB_CANCEL_GRACE_MS", Limits.cancel_grace_ms),
+        cancel_force_wait_ms=_int_env(
+            "JOB_CANCEL_FORCE_WAIT_MS", Limits.cancel_force_wait_ms
+        ),
+    )
+
+
 class SubmitRequest(BaseModel):
     duration_ms: int = Field(description="simulated run duration per child process")
     memory_mb: int = Field(description="reserved memory accounted against the budget")
     procs: int = Field(default=1, description="number of derived child processes")
     timeout_ms: int | None = Field(default=None)
     exit_code: int = Field(default=0, description="exit code children end with")
+    ignore_sigterm: bool = Field(
+        default=False,
+        description="children ignore SIGTERM so the force-kill path is exercised",
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    supervisor = JobSupervisor(JobStore(STATE_DIR / "jobs.json"), Limits())
+    supervisor = JobSupervisor(JobStore(STATE_DIR / "jobs.json"), _limits_from_env())
     await supervisor.start()
     app.state.supervisor = supervisor
     yield
@@ -50,6 +71,7 @@ async def submit_job(req: SubmitRequest, request: Request):
         procs=req.procs,
         timeout_ms=req.timeout_ms,
         exit_code=req.exit_code,
+        ignore_sigterm=req.ignore_sigterm,
     )
     try:
         job = await supervisor.submit(spec)
